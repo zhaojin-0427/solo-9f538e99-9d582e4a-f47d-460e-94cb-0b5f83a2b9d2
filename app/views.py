@@ -1,7 +1,8 @@
-"""HTTP 路由：批次创建、输入更正、报告查看。"""
+"""HTTP 路由：批次创建、输入更正、写失败重试、报告查看。"""
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from flask import (Blueprint, Response, abort, flash, redirect,
                    render_template, request, url_for)
@@ -39,12 +40,17 @@ def _enqueue(db, bid):
         " AND status IN ('pending','running')",
         (bid, fv, cv),
     ).fetchone()
-    if dup is None:
+    if dup is not None:
+        return
+    try:
         db.execute(
             "INSERT INTO jobs(batch_id, fasta_version, csv_version, status, created_at)"
             " VALUES (?,?,?,'pending', datetime('now'))",
             (bid, fv, cv),
         )
+    except sqlite3.IntegrityError:
+        # 并发请求撞"同版本组合至多一个未完成任务"唯一索引：视为已排队
+        pass
 
 
 def _read_upload(field):
@@ -135,6 +141,12 @@ def batch_detail(bid):
         " AND csv_version=? AND status IN ('pending','running')",
         (bid, fv, cv),
     ).fetchone()["n"] > 0
+    # 当前版本组合最近一次因写入失败而终止的任务（无报告，可重试）
+    failed_job = db.execute(
+        "SELECT * FROM jobs WHERE batch_id=? AND fasta_version=? AND csv_version=?"
+        " AND status='failed' ORDER BY id DESC LIMIT 1",
+        (bid, fv, cv),
+    ).fetchone()
     reports = db.execute(
         "SELECT * FROM reports WHERE batch_id=? ORDER BY id DESC LIMIT 50", (bid,)
     ).fetchall()
@@ -145,8 +157,20 @@ def batch_detail(bid):
                if report and report["status"] == "ok" else None)
     return render_template(
         "batch.html", batch=batch, fv=fv, cv=cv, report=report, payload=payload,
-        computing=computing, reports=reports, jobs=jobs,
+        computing=computing, failed_job=failed_job, reports=reports, jobs=jobs,
     )
+
+
+@bp.post("/batches/<int:bid>/retry")
+def retry_batch(bid):
+    """写入失败后的手动重试：按当前最新版本组合重新排队计算。"""
+    db = get_db()
+    _batch_or_404(db, bid)
+    fv, cv = _current_versions(db, bid)
+    _enqueue(db, bid)
+    db.commit()
+    flash(f"已按当前版本（FASTA v{fv} / CSV v{cv}）重新排队计算")
+    return redirect(url_for("main.batch_detail", bid=bid))
 
 
 @bp.get("/batches/<int:bid>/reports/<int:rid>")

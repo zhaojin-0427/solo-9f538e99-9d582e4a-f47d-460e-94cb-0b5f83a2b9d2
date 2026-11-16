@@ -35,6 +35,14 @@
     <p class="hint">整批失败，未产生任何标准化结果；请在下方整份更正输入后重新提交。</p>
   {% elif computing %}
     <p><span class="badge run">计算中……</span> 页面每 2 秒自动刷新；此期间仍可提交更正。</p>
+  {% elif failed_job %}
+    <p><span class="badge bad">计算失败：报告写入异常</span>
+       （任务 #{{ failed_job.id }}，已自动重试 {{ failed_job.attempts }} 次仍失败）</p>
+    <p class="error">失败原因：{{ failed_job.error }}</p>
+    <p class="hint">未产生报告（不留半份）；输入本身未被判定为非法，可直接重试当前版本。</p>
+    <form method="post" action="{{ url_for('main.retry_batch', bid=batch.id) }}">
+      <button type="submit">重试当前版本（FASTA v{{ fv }} / CSV v{{ cv }}）</button>
+    </form>
   {% else %}
     <p class="hint">等待计算任务排队。</p>
   {% endif %}
@@ -82,14 +90,16 @@
 <section class="card">
   <h3>计算任务</h3>
   <table>
-    <tr><th>任务</th><th>版本 (FASTA/CSV)</th><th>状态</th><th>创建</th><th>完成</th></tr>
+    <tr><th>任务</th><th>版本 (FASTA/CSV)</th><th>状态</th><th>写失败次数</th><th>创建</th><th>完成</th><th>说明</th></tr>
     {% for j in jobs %}
     <tr>
       <td>#{{ j.id }}</td>
       <td>v{{ j.fasta_version }} / v{{ j.csv_version }}</td>
       <td>{{ {'pending':'排队中','running':'计算中','done':'完成','failed':'失败'}[j.status] }}</td>
+      <td>{{ j.attempts }}</td>
       <td>{{ j.created_at }}</td>
       <td>{{ j.finished_at or '—' }}</td>
+      <td class="hint">{{ j.error or '—' }}</td>
     </tr>
     {% endfor %}
   </table>

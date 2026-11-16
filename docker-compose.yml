@@ -6,6 +6,12 @@ services:
     environment:
       # 模拟耗时计算的秒数；计算期间仍可提交输入更正
       COMPUTE_DELAY_SECONDS: "2"
+      # 报告写入故障恢复（默认值如下，按需调整）：
+      # JOB_MAX_WRITE_ATTEMPTS: "3"      # 连续写失败上限，达到后页面显示失败并可重试
+      # JOB_RETRY_BACKOFF_SECONDS: "1"   # 重试退避基数（指数）
+      # JOB_STALE_SECONDS: "900"         # running 超时回收阈值
+      # 故障演练：前 N 次报告写入必失败（模拟瞬时写故障）
+      # WORKER_INJECT_WRITE_FAILURES: "3"
     volumes:
       - appdata:/data
     restart: unless-stopped
